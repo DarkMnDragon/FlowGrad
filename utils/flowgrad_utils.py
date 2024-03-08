@@ -35,9 +35,13 @@ def embed_to_latent(model_fn, img):
   # Initial sample
   x = img.detach().clone()
 
+  # NOTE: 实验添加 eps
   solution = integrate.solve_ivp(ode_func, (1., eps), to_flattened_numpy(x),
                                  rtol=rtol, atol=atol, method=method)
-  nfe = solution.nfev
+  nfe = solution.nfev  # Number of Function Evaluations
+  num_time_steps = len(solution.t) - 1 # Number of time steps
+  print(f"Embed to Latent, nfe = {nfe}, num_time_steps = {num_time_steps}")
+  print("Time Steps:", solution.t)
   x = torch.tensor(solution.y[:, -1]).reshape(img.shape).to(device).type(torch.float32)
 
   return x
@@ -103,7 +107,7 @@ def generate_traj(dynamic, z0, u=None, N=100, straightness_threshold=None):
   else:
       return traj
 
-@torch.no_grad()
+@torch.no_grad()  # NOTE: 这个函数的作用是什么 ？？
 def generate_traj_with_guidance(dynamic, z0, N=100, L=None, alpha_L=1.0):
   traj = []
 

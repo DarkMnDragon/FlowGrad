@@ -51,7 +51,7 @@ def flowgrad_edit(config, text_prompt, alpha, model_path, image_path, output_fol
   clip_loss = clip_semantic_loss(text_prompt, original_img, config.device, alpha=alpha, inverse_scaler=inverse_scaler)  
 
   t_s = time.time()
-  latent = embed_to_latent(model_fn, scaler(original_img))
+  latent = embed_to_latent(model_fn, scaler(original_img)) # NOTE: TO DO, TRY DIFFERENT RECONSTRUCT METHOD
   traj = generate_traj(model_fn, latent, N=100)
   save_img(inverse_scaler(traj[-1]), path=os.path.join(log_folder, 'reconstruct.png'))
   print('Finished getting latent code and reconstruction; image saved.')
