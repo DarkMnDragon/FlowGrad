@@ -19,50 +19,53 @@ import RectifiedFlow.datasets as datasets
 from RectifiedFlow.models.utils import get_model_fn
 from RectifiedFlow.models import utils as mutils
 
-from .flowgrad_utils import get_img, embed_to_latent, clip_semantic_loss, save_img, generate_traj, flowgrad_optimization 
+from .flowgrad_utils import *
 
 FLAGS = flags.FLAGS
 
+
 def flowgrad_edit(config, text_prompt, alpha, model_path, image_path, output_folder="output"):
-  # Create data normalizer and its inverse
-  scaler = datasets.get_data_scaler(config)
-  inverse_scaler = datasets.get_data_inverse_scaler(config)
+    # Create data normalizer and its inverse
+    scaler = datasets.get_data_scaler(config)
+    inverse_scaler = datasets.get_data_inverse_scaler(config)
 
-  # Initialize model
-  score_model = mutils.create_model(config)
-  ema = ExponentialMovingAverage(score_model.parameters(), decay=config.model.ema_rate)
-  state = dict(model=score_model, ema=ema, step=0)
+    # Initialize model
+    score_model = mutils.create_model(config)
+    ema = ExponentialMovingAverage(score_model.parameters(), decay=config.model.ema_rate)
+    state = dict(model=score_model, ema=ema, step=0)
 
-  state = restore_checkpoint(model_path, state, device=config.device)
-  ema.copy_to(score_model.parameters())
+    state = restore_checkpoint(model_path, state, device=config.device)
+    ema.copy_to(score_model.parameters())
 
-  model_fn = mutils.get_model_fn(score_model, train=False)
+    model_fn = mutils.get_model_fn(score_model, train=False)
 
-  # Load the image to edit
-  original_img = get_img(image_path)  
-  
-  log_folder = os.path.join(output_folder, 'figs')
-  print('Images will be saved to:', log_folder)
-  if not os.path.exists(log_folder): os.makedirs(log_folder)
-  save_img(original_img, path=os.path.join(log_folder, 'original.png'))
+    # Load the image to edit
+    original_img = get_img(image_path)
 
-  # Get latent code of the image and save reconstruction
-  original_img = original_img.to(config.device)
-  clip_loss = clip_semantic_loss(text_prompt, original_img, config.device, alpha=alpha, inverse_scaler=inverse_scaler)  
+    log_folder = os.path.join(output_folder, 'figs')
+    print('Images will be saved to:', log_folder)
+    if not os.path.exists(log_folder): os.makedirs(log_folder)
+    save_img(original_img, path=os.path.join(log_folder, 'original.png'))
 
-  t_s = time.time()
-  latent = embed_to_latent(model_fn, scaler(original_img)) # NOTE: TO DO, TRY DIFFERENT RECONSTRUCT METHOD
-  traj = generate_traj(model_fn, latent, N=100)
-  save_img(inverse_scaler(traj[-1]), path=os.path.join(log_folder, 'reconstruct.png'))
-  print('Finished getting latent code and reconstruction; image saved.')
-  
-  # Edit according to text prompt
-  u_ind = [i for i in range(100)]
-  opt_u = flowgrad_optimization(latent, u_ind, model_fn, generate_traj, N=100, L_N=clip_loss.L_N, u_init=None,  number_of_iterations=10, straightness_threshold=5e-3, lr=10.0) 
+    # Get latent code of the image and save reconstruction
+    original_img = original_img.to(config.device)
+    clip_loss = clip_semantic_loss(text_prompt, original_img, config.device, alpha=alpha, inverse_scaler=inverse_scaler)
 
-  traj = generate_traj(model_fn, latent, u=opt_u, N=100)
-   
-  print('Total time:', time.time() - t_s)
-  save_img(inverse_scaler(traj[-1]), path=os.path.join(log_folder, 'optimized.png'))
-  print('Finished Editting; images saved.')
+    t_s = time.time()
+    latent = embed_to_latent_rk45(model_fn, scaler(original_img))  # NOTE: TO DO, TRY DIFFERENT RECONSTRUCT METHOD
+    print("Latent get. Latent shape:", latent.shape)
+    traj = generate_traj_euler(model_fn, latent, N=100)
+    print("Reconstruction with reversed latent. Traj length:", len(traj), " z shape:", traj[0].shape)
+    save_img(inverse_scaler(traj[-1]), path=os.path.join(log_folder, 'reconstruct.png'))
+    print('Finished getting latent code and reconstruction; image saved.')
 
+    # Edit according to text prompt
+    u_ind = [i for i in range(100)]
+    opt_u = flowgrad_optimization_euler(latent, u_ind, model_fn, generate_traj_euler, N=100, L_N=clip_loss.L_N,
+                                        u_init=None, number_of_iterations=10, straightness_threshold=5e-3, lr=1000.0)
+
+    traj = generate_traj_euler(model_fn, latent, u=opt_u, N=100)
+
+    print('Total time:', time.time() - t_s)
+    save_img(inverse_scaler(traj[-1]), path=os.path.join(log_folder, 'optimized.png'))
+    print('Finished Editting; images saved.')
